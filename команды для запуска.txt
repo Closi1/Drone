@@ -1,0 +1,4 @@
+python visualization\interactive_drone_visualizer.py запуск
+python visualization\flight_data_viewer.py запуск таблицы
+
+
