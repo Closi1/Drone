@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime
 import numpy as np
-import pandas as pd  # Добавьте эту строку
+import pandas as pd
 
 class DroneDatabase:
     def __init__(self, db_path="drone_flight_data.db"):
@@ -93,6 +93,36 @@ class DroneDatabase:
             )
         ''')
         
+        # Новая таблица для данных IMU
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS imu_data (
+                imu_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                
+                -- Данные гироскопа
+                gyro_roll_rate REAL,
+                gyro_pitch_rate REAL, 
+                gyro_yaw_rate REAL,
+                gyro_temperature REAL,
+                
+                -- Данные акселерометра
+                accel_x REAL,
+                accel_y REAL,
+                accel_z REAL,
+                accel_temperature REAL,
+                vibration_level REAL,
+                
+                -- Оценка ориентации
+                estimated_roll REAL,
+                estimated_pitch REAL,
+                estimated_yaw REAL,
+                orientation_confidence REAL,
+                
+                FOREIGN KEY (session_id) REFERENCES flight_sessions (session_id)
+            )
+        ''')
+        
         conn.commit()
         conn.close()
         print(f"✅ База данных дрона создана: {self.db_path}")
@@ -174,6 +204,36 @@ class DroneDatabase:
             float(drone.propeller_speeds[1]),
             float(drone.propeller_speeds[2]),
             float(drone.propeller_speeds[3])
+        ))
+        
+        # Сохраняем данные IMU
+        imu_data = drone.get_imu_data()
+        gyro = imu_data['gyroscope']
+        accel = imu_data['accelerometer']
+        orientation = imu_data['orientation_estimate']
+        
+        cursor.execute('''
+            INSERT INTO imu_data 
+            (session_id, 
+             gyro_roll_rate, gyro_pitch_rate, gyro_yaw_rate, gyro_temperature,
+             accel_x, accel_y, accel_z, accel_temperature, vibration_level,
+             estimated_roll, estimated_pitch, estimated_yaw, orientation_confidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            session_id,
+            gyro['roll_rate'],
+            gyro['pitch_rate'],
+            gyro['yaw_rate'],
+            gyro['temperature'],
+            accel['accel_x'],
+            accel['accel_y'],
+            accel['accel_z'],
+            accel['temperature'],
+            accel['vibration_level'],
+            orientation['roll_estimated'],
+            orientation['pitch_estimated'],
+            orientation['yaw_estimated'],
+            orientation['confidence']
         ))
         
         conn.commit()
@@ -266,13 +326,17 @@ class DroneDatabase:
         cursor.execute('SELECT COUNT(*) FROM propeller_data WHERE session_id = ?', (session_id,))
         propeller_count = cursor.fetchone()[0]
         
+        cursor.execute('SELECT COUNT(*) FROM imu_data WHERE session_id = ?', (session_id,))
+        imu_count = cursor.fetchone()[0]
+        
         conn.close()
         
         return {
             'position_count': position_count,
             'event_count': event_count,
             'stats_count': stats_count,
-            'propeller_count': propeller_count
+            'propeller_count': propeller_count,
+            'imu_count': imu_count
         }
     
     def get_recent_flights(self, limit=10):
@@ -335,6 +399,24 @@ class DroneDatabase:
         conn.close()
         return df_propellers
     
+    def get_imu_data(self, session_id):
+        """Возвращает данные IMU"""
+        conn = sqlite3.connect(self.db_path)
+        
+        df_imu = pd.read_sql_query('''
+            SELECT timestamp, 
+                   gyro_roll_rate, gyro_pitch_rate, gyro_yaw_rate,
+                   accel_x, accel_y, accel_z,
+                   estimated_roll, estimated_pitch, estimated_yaw,
+                   orientation_confidence
+            FROM imu_data 
+            WHERE session_id = ?
+            ORDER BY timestamp
+        ''', conn, params=(session_id,))
+        
+        conn.close()
+        return df_imu
+    
     def export_flight_data(self, session_id, filename=None):
         """Экспортирует данные полёта в JSON файл"""
         if filename is None:
@@ -350,6 +432,7 @@ class DroneDatabase:
         events = self.get_flight_events(session_id)
         positions = self.get_flight_positions(session_id)
         propeller_data = self.get_propeller_data(session_id)
+        imu_data = self.get_imu_data(session_id)
         
         # Формируем данные для экспорта
         export_data = {
@@ -358,6 +441,7 @@ class DroneDatabase:
             'events': events.to_dict('records'),
             'positions': positions.to_dict('records'),
             'propeller_data': propeller_data.to_dict('records'),
+            'imu_data': imu_data.to_dict('records'),
             'export_time': datetime.now().isoformat()
         }
         
@@ -373,7 +457,7 @@ class DroneDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        tables = ['flight_sessions', 'drone_positions', 'flight_events', 'flight_statistics', 'propeller_data']
+        tables = ['flight_sessions', 'drone_positions', 'flight_events', 'flight_statistics', 'propeller_data', 'imu_data']
         stats = {}
         
         for table in tables:

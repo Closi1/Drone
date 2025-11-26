@@ -72,6 +72,7 @@ class FlightDataViewer:
         print(f"   📝 Событий: {stats['event_count']}")
         print(f"   📈 Статистик: {stats['stats_count']}")
         print(f"   🚁 Данных пропеллеров: {stats['propeller_count']}")
+        print(f"   🎯 Данных IMU: {stats['imu_count']}")
         
         # События полёта
         df_events = self.database.get_flight_events(session_id)
@@ -106,6 +107,28 @@ class FlightDataViewer:
         
         print(df_display.to_string(index=False))
         print(f"\nВсего записей: {len(df_propellers)}")
+    
+    def show_imu_data(self, session_id):
+        """Показывает данные IMU для сессии"""
+        df_imu = self.database.get_imu_data(session_id)
+        
+        if len(df_imu) == 0:
+            print(f"❌ Нет данных IMU для сессии #{session_id}")
+            return
+        
+        print(f"\n🎯 ДАННЫЕ IMU СЕССИИ #{session_id}:")
+        print("=" * 120)
+        
+        df_display = df_imu.tail(5).copy()
+        df_display['timestamp'] = pd.to_datetime(df_display['timestamp']).dt.strftime('%H:%M:%S.%f')[:-3]
+        
+        # Округляем значения
+        for col in df_display.columns:
+            if col != 'timestamp':
+                df_display[col] = df_display[col].round(4)
+        
+        print(df_display.to_string(index=False))
+        print(f"\nВсего записей IMU: {len(df_imu)}")
     
     def plot_flight_trajectory(self, session_id):
         """Строит график траектории полёта"""
@@ -213,6 +236,61 @@ class FlightDataViewer:
         
         plt.tight_layout()
         plt.show()
+    
+    def plot_imu_data(self, session_id):
+        """Строит графики данных IMU"""
+        df_imu = self.database.get_imu_data(session_id)
+        
+        if len(df_imu) == 0:
+            print(f"❌ Нет данных IMU для сессии #{session_id}")
+            return
+        
+        # Создаём графики
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+        
+        # Время в секундах от начала
+        df_imu['time_sec'] = (pd.to_datetime(df_imu['timestamp']) - 
+                            pd.to_datetime(df_imu['timestamp']).iloc[0]).dt.total_seconds()
+        
+        # График гироскопа
+        ax1.plot(df_imu['time_sec'], df_imu['gyro_roll_rate'], 'r-', label='Крен', linewidth=2)
+        ax1.plot(df_imu['time_sec'], df_imu['gyro_pitch_rate'], 'b-', label='Тангаж', linewidth=2)
+        ax1.plot(df_imu['time_sec'], df_imu['gyro_yaw_rate'], 'g-', label='Рыскание', linewidth=2)
+        ax1.set_xlabel('Время (сек)')
+        ax1.set_ylabel('Скорость (рад/с)')
+        ax1.set_title('Гироскоп - угловые скорости')
+        ax1.legend()
+        ax1.grid(True)
+        
+        # График акселерометра
+        ax2.plot(df_imu['time_sec'], df_imu['accel_x'], 'r-', label='X', linewidth=2)
+        ax2.plot(df_imu['time_sec'], df_imu['accel_y'], 'b-', label='Y', linewidth=2)
+        ax2.plot(df_imu['time_sec'], df_imu['accel_z'], 'g-', label='Z', linewidth=2)
+        ax2.set_xlabel('Время (сек)')
+        ax2.set_ylabel('Ускорение (м/с²)')
+        ax2.set_title('Акселерометр - линейные ускорения')
+        ax2.legend()
+        ax2.grid(True)
+        
+        # График ориентации
+        ax3.plot(df_imu['time_sec'], np.degrees(df_imu['estimated_roll']), 'r-', label='Крен', linewidth=2)
+        ax3.plot(df_imu['time_sec'], np.degrees(df_imu['estimated_pitch']), 'b-', label='Тангаж', linewidth=2)
+        ax3.plot(df_imu['time_sec'], np.degrees(df_imu['estimated_yaw']), 'g-', label='Рыскание', linewidth=2)
+        ax3.set_xlabel('Время (сек)')
+        ax3.set_ylabel('Угол (градусы)')
+        ax3.set_title('Ориентация по данным IMU')
+        ax3.legend()
+        ax3.grid(True)
+        
+        # График уверенности ориентации
+        ax4.plot(df_imu['time_sec'], df_imu['orientation_confidence'], 'purple', linewidth=2)
+        ax4.set_xlabel('Время (сек)')
+        ax4.set_ylabel('Уверенность')
+        ax4.set_title('Уверенность оценки ориентации')
+        ax4.grid(True)
+        
+        plt.tight_layout()
+        plt.show()
 
 if __name__ == "__main__":
     viewer = FlightDataViewer()
@@ -226,12 +304,14 @@ if __name__ == "__main__":
         print("2 - Показать последние полёты")
         print("3 - Детали полёта")
         print("4 - Данные пропеллеров")
-        print("5 - График траектории")
-        print("6 - График данных пропеллеров")
-        print("7 - Экспорт данных полёта")
-        print("8 - Выход")
+        print("5 - Данные IMU (гироскоп/акселерометр)")
+        print("6 - График траектории")
+        print("7 - График данных пропеллеров")
+        print("8 - График данных IMU")
+        print("9 - Экспорт данных полёта")
+        print("0 - Выход")
         
-        choice = input("Ваш выбор (1-8): ").strip()
+        choice = input("Ваш выбор (0-9): ").strip()
         
         if choice == '1':
             viewer.show_database_stats()
@@ -252,22 +332,34 @@ if __name__ == "__main__":
         elif choice == '5':
             session_id = input("Введите ID сессии: ").strip()
             if session_id.isdigit():
-                viewer.plot_flight_trajectory(int(session_id))
+                viewer.show_imu_data(int(session_id))
             else:
                 print("❌ Неверный ID сессии")
         elif choice == '6':
             session_id = input("Введите ID сессии: ").strip()
             if session_id.isdigit():
-                viewer.plot_propeller_data(int(session_id))
+                viewer.plot_flight_trajectory(int(session_id))
             else:
                 print("❌ Неверный ID сессии")
         elif choice == '7':
             session_id = input("Введите ID сессии: ").strip()
             if session_id.isdigit():
-                viewer.database.export_flight_data(int(session_id))
+                viewer.plot_propeller_data(int(session_id))
             else:
                 print("❌ Неверный ID сессии")
         elif choice == '8':
+            session_id = input("Введите ID сессии: ").strip()
+            if session_id.isdigit():
+                viewer.plot_imu_data(int(session_id))
+            else:
+                print("❌ Неверный ID сессии")
+        elif choice == '9':
+            session_id = input("Введите ID сессии: ").strip()
+            if session_id.isdigit():
+                viewer.database.export_flight_data(int(session_id))
+            else:
+                print("❌ Неверный ID сессии")
+        elif choice == '0':
             print("👋 Выход из программы")
             break
         else:
