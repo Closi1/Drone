@@ -1,4 +1,7 @@
 # Drone
+цель коротко:
+https://youtube.com/shorts/ggpfYeIxR04?si=haSdoCTjtVA4EDLJ
+
 
 📊 ОТЧЁТ ПО ПРОГРАММЕ "СИСТЕМА УПРАВЛЕНИЯ И МОНИТОРИНГА ДРОНА"
 🎯 ОПИСАНИЕ ПРОЕКТА
