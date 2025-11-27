@@ -93,7 +93,7 @@ class DroneDatabase:
             )
         ''')
         
-        # Новая таблица для данных IMU
+        # Таблица для данных IMU
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS imu_data (
                 imu_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,10 +132,13 @@ class DroneDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Используем текущее время для точного времени начала
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         cursor.execute('''
             INSERT INTO flight_sessions (start_time, status) 
-            VALUES (datetime('now'), 'IN_PROGRESS')
-        ''')
+            VALUES (?, 'IN_PROGRESS')
+        ''', (current_time,))
         
         session_id = cursor.lastrowid
         
@@ -156,14 +159,18 @@ class DroneDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Используем текущее время для каждой записи
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         # Сохраняем позицию
         cursor.execute('''
             INSERT INTO drone_positions 
-            (session_id, pos_x, pos_y, pos_z, velocity_x, velocity_y, velocity_z, 
+            (session_id, timestamp, pos_x, pos_y, pos_z, velocity_x, velocity_y, velocity_z, 
              roll, pitch, yaw, thrust, control_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             session_id,
+            current_time,
             float(drone.position[0]),
             float(drone.position[1]), 
             float(drone.position[2]),
@@ -183,19 +190,20 @@ class DroneDatabase:
         
         cursor.execute('''
             INSERT INTO flight_statistics 
-            (session_id, altitude, speed)
-            VALUES (?, ?, ?)
-        ''', (session_id, altitude, speed))
+            (session_id, timestamp, altitude, speed)
+            VALUES (?, ?, ?, ?)
+        ''', (session_id, current_time, altitude, speed))
         
         # Сохраняем данные пропеллеров
         cursor.execute('''
             INSERT INTO propeller_data 
-            (session_id, 
+            (session_id, timestamp,
              propeller_1_thrust, propeller_2_thrust, propeller_3_thrust, propeller_4_thrust,
              propeller_1_speed, propeller_2_speed, propeller_3_speed, propeller_4_speed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             session_id,
+            current_time,
             float(drone.propeller_thrusts[0]),
             float(drone.propeller_thrusts[1]),
             float(drone.propeller_thrusts[2]),
@@ -214,13 +222,14 @@ class DroneDatabase:
         
         cursor.execute('''
             INSERT INTO imu_data 
-            (session_id, 
+            (session_id, timestamp,
              gyro_roll_rate, gyro_pitch_rate, gyro_yaw_rate, gyro_temperature,
              accel_x, accel_y, accel_z, accel_temperature, vibration_level,
              estimated_roll, estimated_pitch, estimated_yaw, orientation_confidence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             session_id,
+            current_time,
             gyro['roll_rate'],
             gyro['pitch_rate'],
             gyro['yaw_rate'],
@@ -244,10 +253,12 @@ class DroneDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         cursor.execute('''
-            INSERT INTO flight_events (session_id, event_type, event_data)
-            VALUES (?, ?, ?)
-        ''', (session_id, event_type, event_data))
+            INSERT INTO flight_events (session_id, event_time, event_type, event_data)
+            VALUES (?, ?, ?, ?)
+        ''', (session_id, current_time, event_type, event_data))
         
         conn.commit()
         conn.close()
@@ -259,31 +270,48 @@ class DroneDatabase:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Используем текущее время для времени окончания
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         cursor.execute('''
             UPDATE flight_sessions 
-            SET end_time = datetime('now'),
+            SET end_time = ?,
                 total_flight_time = ?,
                 total_distance = ?,
                 max_altitude = ?,
                 max_speed = ?,
                 status = 'COMPLETED'
             WHERE session_id = ?
-        ''', (total_time, total_distance, max_altitude, max_speed, session_id))
+        ''', (current_time, total_time, total_distance, max_altitude, max_speed, session_id))
         
         # Записываем событие посадки
         cursor.execute('''
-            INSERT INTO flight_events (session_id, event_type, event_data)
-            VALUES (?, 'LANDING', 'Дрон приземлился')
-        ''', (session_id,))
+            INSERT INTO flight_events (session_id, event_time, event_type, event_data)
+            VALUES (?, ?, 'LANDING', 'Дрон приземлился')
+        ''', (session_id, current_time))
         
         conn.commit()
         conn.close()
         
         print(f"🛬 Завершена сессия полёта #{session_id}")
-        print(f"   ⏱️ Время: {total_time:.1f} сек")
+        print(f"   🕒 Начало: {self.get_session_start_time(session_id)}")
+        print(f"   🕒 Конец: {current_time}")
+        print(f"   ⏱️ Время полёта: {total_time:.1f} сек")
         print(f"   📏 Дистанция: {total_distance:.1f} м")
         print(f"   📈 Макс. высота: {max_altitude:.1f} м")
         print(f"   🚀 Макс. скорость: {max_speed:.1f} м/с")
+    
+    def get_session_start_time(self, session_id):
+        """Возвращает время начала сессии"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT start_time FROM flight_sessions WHERE session_id = ?', (session_id,))
+        result = cursor.fetchone()
+        
+        conn.close()
+        
+        return result[0] if result else "Неизвестно"
     
     def get_session_info(self, session_id):
         """Возвращает основную информацию о сессии"""
@@ -347,7 +375,7 @@ class DroneDatabase:
             SELECT session_id, start_time, end_time, total_flight_time, 
                    total_distance, max_altitude, max_speed, status
             FROM flight_sessions 
-            ORDER BY start_time DESC 
+            ORDER BY session_id DESC 
             LIMIT {limit}
         ''', conn)
         
@@ -465,11 +493,45 @@ class DroneDatabase:
             count = cursor.fetchone()[0]
             stats[table] = count
         
+        # Получаем количество сессий
+        cursor.execute('SELECT COUNT(*) FROM flight_sessions')
+        total_sessions = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT MAX(session_id) FROM flight_sessions')
+        max_session_id = cursor.fetchone()[0]
+        
         conn.close()
         
         print("📊 СТАТИСТИКА БАЗЫ ДАННЫХ:")
-        print("=" * 40)
+        print("=" * 50)
+        print(f"   Всего сессий полётов: {total_sessions}")
+        print(f"   Последняя сессия ID: {max_session_id}")
+        print("-" * 50)
         for table, count in stats.items():
             print(f"   {table}: {count} записей")
         
-        return stats
+        return {
+            'total_sessions': total_sessions,
+            'max_session_id': max_session_id,
+            'table_stats': stats
+        }
+    
+    def clear_old_data(self, days_old=30):
+        """Очищает старые данные (для обслуживания базы)"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cutoff_date = (datetime.now() - timedelta(days=days_old)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        tables = ['drone_positions', 'flight_events', 'flight_statistics', 'propeller_data', 'imu_data']
+        deleted_count = 0
+        
+        for table in tables:
+            cursor.execute(f'DELETE FROM {table} WHERE timestamp < ?', (cutoff_date,))
+            deleted_count += cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"🧹 Удалено {deleted_count} записей старше {days_old} дней")
+        return deleted_count

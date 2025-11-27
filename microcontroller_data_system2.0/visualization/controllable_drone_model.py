@@ -287,7 +287,7 @@ class ControllableDrone:
         """Начинает запись данных полёта"""
         if self.current_session_id is None:
             self.current_session_id = self.database.start_new_flight_session()
-            print("📊 Начата запись данных полёта")
+            print(f"📊 Начата запись данных полёта #{self.current_session_id}")
     
     def stop_data_logging(self):
         """Останавливает запись данных и сохраняет итоги"""
@@ -299,8 +299,8 @@ class ControllableDrone:
                 self.max_altitude,
                 self.max_speed
             )
+            print(f"📊 Запись данных полёта #{self.current_session_id} завершена")
             self.current_session_id = None
-            print("📊 Запись данных полёта завершена")
     
     def save_current_state(self):
         """Сохраняет текущее состояние дрона в базу данных"""
@@ -631,9 +631,11 @@ class ControllableDrone:
     
     def reset(self):
         """Сбрасывает дрон в начальное состояние"""
+        # Останавливаем запись текущей сессии
         if self.current_session_id:
             self.stop_data_logging()
         
+        # Сбрасываем все параметры дрона
         self.position = np.array([0.0, 0.0, 3.0])
         self.orientation = np.array([0.0, 0.0, 0.0])
         self.velocity = np.array([0.0, 0.0, 0.0])
@@ -652,4 +654,62 @@ class ControllableDrone:
         # Автоматическая калибровка при сбросе
         self.calibrate_sensors()
         
+        # Начинаем новую сессию записи
         self.start_data_logging()
+        
+        print("🔄 Дрон сброшен. Начата новая сессия записи.")
+
+# Дополнительный класс для тестирования
+class DroneTest:
+    def __init__(self):
+        self.drone = ControllableDrone()
+        self.database = DroneDatabase()
+    
+    def run_test_flight(self, duration=10):
+        """Запускает тестовый полёт"""
+        print("🧪 ЗАПУСК ТЕСТОВОГО ПОЛЁТА")
+        print("=" * 40)
+        
+        # Начинаем сессию
+        session_id = self.database.start_new_flight_session()
+        
+        # Имитируем полёт
+        start_time = datetime.now()
+        dt = 0.1
+        
+        for i in range(int(duration / dt)):
+            # Случайное управление для теста
+            thrust_change = random.uniform(-0.5, 0.5)
+            pitch = random.uniform(-0.2, 0.2)
+            roll = random.uniform(-0.2, 0.2)
+            yaw = random.uniform(-0.1, 0.1)
+            
+            self.drone.set_control_input(thrust_change, pitch, roll, yaw)
+            self.drone.apply_control()
+            self.drone.update_physics(dt)
+            
+            # Сохраняем состояние каждые 0.5 секунды
+            if i % 5 == 0:
+                self.database.save_drone_position(session_id, self.drone)
+        
+        # Завершаем сессию
+        self.database.end_flight_session(
+            session_id,
+            self.drone.flight_time,
+            self.drone.distance_traveled,
+            self.drone.max_altitude,
+            self.drone.max_speed
+        )
+        
+        print("✅ Тестовый полёт завершён")
+        print(f"📊 Сессия #{session_id} сохранена")
+        
+        return session_id
+
+if __name__ == "__main__":
+    # Тестирование дрона
+    test = DroneTest()
+    test_session = test.run_test_flight(5)
+    
+    print(f"\n🎯 Тест завершён. Данные сохранены в сессии #{test_session}")
+    print("💡 Запустите flight_data_viewer.py для просмотра данных")

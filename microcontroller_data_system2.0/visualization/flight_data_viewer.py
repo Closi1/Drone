@@ -14,9 +14,9 @@ class FlightDataViewer:
         """Показывает статистику базы данных"""
         self.database.get_database_stats()
     
-    def show_recent_flights(self):
+    def show_recent_flights(self, limit=10):
         """Показывает последние полёты"""
-        df_flights = self.database.get_recent_flights(10)
+        df_flights = self.database.get_recent_flights(limit)
         
         print("📊 ПОСЛЕДНИЕ ПОЛЁТЫ:")
         print("=" * 120)
@@ -291,8 +291,24 @@ class FlightDataViewer:
         
         plt.tight_layout()
         plt.show()
+    
+    def database_maintenance(self):
+        """Функция обслуживания базы данных"""
+        print("🔧 ОБСЛУЖИВАНИЕ БАЗЫ ДАННЫХ")
+        print("=" * 40)
+        
+        # Показать статистику
+        stats = self.database.get_database_stats()
+        
+        # Очистить старые данные (опционально)
+        choice = input("\nОчистить данные старше 30 дней? (y/n): ").strip().lower()
+        if choice == 'y':
+            deleted = self.database.clear_old_data(30)
+            print(f"✅ Удалено {deleted} записей")
+        
+        print("\n✅ Обслуживание завершено")
 
-if __name__ == "__main__":
+def main():
     viewer = FlightDataViewer()
     
     print("📊 ПРОСМОТР ДАННЫХ ПОЛЁТОВ ДРОНА")
@@ -309,9 +325,10 @@ if __name__ == "__main__":
         print("7 - График данных пропеллеров")
         print("8 - График данных IMU")
         print("9 - Экспорт данных полёта")
+        print("10 - Обслуживание базы данных")
         print("0 - Выход")
         
-        choice = input("Ваш выбор (0-9): ").strip()
+        choice = input("Ваш выбор (0-10): ").strip()
         
         if choice == '1':
             viewer.show_database_stats()
@@ -359,8 +376,13 @@ if __name__ == "__main__":
                 viewer.database.export_flight_data(int(session_id))
             else:
                 print("❌ Неверный ID сессии")
+        elif choice == '10':
+            viewer.database_maintenance()
         elif choice == '0':
             print("👋 Выход из программы")
             break
         else:
             print("❌ Неверный выбор")
+
+if __name__ == "__main__":
+    main()
